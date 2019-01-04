@@ -160,7 +160,8 @@ internal class KotlinNamesAnnotationIntrospector(val module: KotlinModule, val c
 
                         implyCreatorAnnotation
                     } else {
-                        false
+                        // Might be synthetic constructor because of inline class paramters
+                        member.declaringClass.hasInlineClassParameters()
                     }
                 }
             }
@@ -224,9 +225,3 @@ internal class KotlinNamesAnnotationIntrospector(val module: KotlinModule, val c
         return null
     }
 }
-
-/**
- * Checks if the class is an inline Kotlin class.
- * @return true if it's inline
- */
-private fun Class<*>.isInlineClass() = declaredMethods.any { it.name == "box-impl" }

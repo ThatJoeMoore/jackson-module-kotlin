@@ -4,12 +4,15 @@ package com.fasterxml.jackson.module.kotlin.test
 
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonValue
+import com.fasterxml.jackson.module.kotlin.hasInlineClassParameters
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import org.junit.Ignore
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Support for inline classes.
@@ -72,6 +75,29 @@ class TestGithub205 {
         // A weird edge case, one might expect to get ICNullabe(null).
         val result: ICNullable? = mapper.readValue(json)
         assertNull(result)
+    }
+
+    @Test
+    fun classWithInlineProperty() {
+        val obj = HasInlineClassProperty(IC(123), null)
+        val json = mapper.writeValueAsString(obj)
+        assertEquals("""{"ic":123}""", json)
+        val result = mapper.readValue<HasInlineClassProperty>(json)
+        assertEquals(obj, result)
+    }
+
+    data class HasBoolean(val foo: Boolean)
+
+    @Test
+    fun hasBoolean() {
+        val actualObj: HasBoolean = mapper.readValue("""{"foo": false}""")
+        assertEquals(HasBoolean(false), actualObj)
+    }
+
+    @Test
+    fun hasInlineClassParameters() {
+        assertTrue(HasInlineClassProperty::class.java.hasInlineClassParameters())
+        assertFalse(HasBoolean::class.java.hasInlineClassParameters())
     }
 
     // TODO: Make it possible to override default behaviour with @JsonValue and @JsonCreator
@@ -157,3 +183,5 @@ private inline class IC(val u: Int) : Base {
 }
 
 private inline class ICNullable(val s: String?)
+
+private class HasInlineClassProperty(val ic: IC, val foo: Nothing?)
