@@ -3,6 +3,7 @@
 package com.fasterxml.jackson.module.kotlin.test
 
 import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonValue
 import com.fasterxml.jackson.module.kotlin.hasInlineClassParameters
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
@@ -77,6 +78,8 @@ class TestGithub205 {
         assertNull(result)
     }
 
+    private data class HasInlineClassProperty(val ic: IC, val foo: Nothing?)
+
     @Test
     fun classWithInlineProperty() {
         val obj = HasInlineClassProperty(IC(123), null)
@@ -84,6 +87,7 @@ class TestGithub205 {
         assertEquals("""{"ic":123}""", json)
         val result = mapper.readValue<HasInlineClassProperty>(json)
         assertEquals(obj, result)
+        assertTrue(HasInlineClassProperty::class.java.hasInlineClassParameters())
     }
 
     data class HasBoolean(val foo: Boolean)
@@ -92,17 +96,35 @@ class TestGithub205 {
     fun hasBoolean() {
         val actualObj: HasBoolean = mapper.readValue("""{"foo": false}""")
         assertEquals(HasBoolean(false), actualObj)
-    }
-
-    @Test
-    fun hasInlineClassParameters() {
-        assertTrue(HasInlineClassProperty::class.java.hasInlineClassParameters())
         assertFalse(HasBoolean::class.java.hasInlineClassParameters())
     }
 
-    // TODO: Make it possible to override default behaviour with @JsonValue and @JsonCreator
+    private data class HasBoxedInlineClassProperty(val ic: IC?)
 
-    @Ignore
+    @Test
+    fun hasBoxedInlineClassParameters() {
+        val obj = HasBoxedInlineClassProperty(IC(123))
+        val json = mapper.writeValueAsString(obj)
+        assertEquals("""{"ic":123}""", json)
+        val result = mapper.readValue<HasBoxedInlineClassProperty>(json)
+        assertEquals(obj, result)
+        assertTrue(HasBoxedInlineClassProperty::class.java.hasInlineClassParameters())
+    }
+
+    @Test
+    fun array() {
+        val obj = listOf(IC(123))
+        val json = mapper.writeValueAsString(obj)
+        assertEquals("""[123]""", json)
+        val result = mapper.readValue<Array<IC>>(json).toList()
+        assertEquals(obj, result)
+    }
+
+    // TODO: Make it possible to override default behaviour with @JsonValue and @JsonCreator
+    // For example, this is needed if you want to serialize unsigned numbers as positive numbers.
+
+    private data class HasOverrideValue(val foo: OverrideValue)
+
     @Test
     fun overrideJsonValue() {
         val obj = OverrideValue("hello")
@@ -112,7 +134,15 @@ class TestGithub205 {
         assertEquals(OverrideValue("override"), result)
     }
 
-    @Ignore
+    @Test
+    fun hasOverrideJsonValue() {
+        val obj = HasOverrideValue(OverrideValue("hello"))
+        val json = mapper.writeValueAsString(obj)
+        assertEquals("""{"foo":"override"}""", json)
+        val result = mapper.readValue<HasOverrideValue>(json)
+        assertEquals(HasOverrideValue(OverrideValue("override")), result)
+    }
+
     @Test
     fun overrideJsonValueProp() {
         val obj = JsonValueAnnotated("hello")
@@ -125,6 +155,7 @@ class TestGithub205 {
     @Ignore
     @Test
     fun overrideJsonCreator() {
+        // TODO: Inline classes do not (yet) support @JvmStatic
         val obj = OverrideCreator(12.34F)
         val json = mapper.writeValueAsString(obj)
         assertEquals("12.34", json)
@@ -135,17 +166,17 @@ class TestGithub205 {
 
 private inline class Watt(val value: Long)
 
-private inline class OverrideValue(val bar: String) {
+private inline class OverrideValue(@get:JsonIgnore val bar: String) {
     @JsonValue
-    fun toJson() = "override"
+    override fun toString() = "override"
 }
 
 private inline class JsonValueAnnotated(@JsonValue val bar: String)
 
-@Suppress("unused")
+@Suppress("unused", "NON_PUBLIC_PRIMARY_CONSTRUCTOR_OF_INLINE_CLASS")
 private inline class OverrideCreator(val float: Float) {
     companion object {
-        @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+        @JsonCreator
         @JvmStatic
         fun parse(value: Float) = OverrideCreator(99.99F)
     }
@@ -183,5 +214,3 @@ private inline class IC(val u: Int) : Base {
 }
 
 private inline class ICNullable(val s: String?)
-
-private class HasInlineClassProperty(val ic: IC, val foo: Nothing?)

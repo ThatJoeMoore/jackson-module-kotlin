@@ -2,6 +2,7 @@ package com.fasterxml.jackson.module.kotlin
 
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.annotation.JsonValue
 import com.fasterxml.jackson.databind.MapperFeature
 import com.fasterxml.jackson.databind.introspect.*
 import com.fasterxml.jackson.databind.module.SimpleModule
@@ -160,7 +161,7 @@ internal class KotlinNamesAnnotationIntrospector(val module: KotlinModule, val c
 
                         implyCreatorAnnotation
                     } else {
-                        // Might be synthetic constructor because of inline class paramters
+                        // Might be synthetic constructor because of inline class parameters
                         member.declaringClass.hasInlineClassParameters()
                     }
                 }
@@ -169,10 +170,30 @@ internal class KotlinNamesAnnotationIntrospector(val module: KotlinModule, val c
 
         // Support for inline classes
         if (member is AnnotatedMethod && member.name == "box-impl") {
-            return true
+            val staticCreator = member.declaringClass.declaredMethods
+                .any { m -> Modifier.isStatic(m.modifiers) &&  m.isAnnotationPresent(JsonCreator::class.java) }
+            val constructorCreator = member.declaringClass.constructors
+                .any { m -> m.isAnnotationPresent(JsonCreator::class.java) }
+            return !staticCreator && !constructorCreator
         }
 
         return false
+    }
+
+    override fun hasAsValue(member: Annotated): Boolean? {
+        // Support for inline classes
+        if (member is AnnotatedMethod && cache.classIsInline(member.declaringClass)) {
+            // Inline classes have exactly one non-static field
+            val field = member.declaringClass.declaredFields.single { !Modifier.isStatic(it.modifiers) }
+            val getterName = "get" + field.name.capitalize()
+            // Annotate the corresponding property with @JsonValue
+            if (member.name == getterName) {
+                // Check if anything is annotated as @JsonValue
+                return !member.declaringClass.kotlin.declaredMembers
+                    .any { m -> m.findAnnotation<JsonValue>() != null }
+            }
+        }
+        return null
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -185,6 +206,9 @@ internal class KotlinNamesAnnotationIntrospector(val module: KotlinModule, val c
                 val ktorParmCount = try { ctor.kotlinFunction?.parameters?.size ?: 0 } catch (ex: KotlinReflectionInternalError) { 0 }
                 if (ktorParmCount > 0 && ktorParmCount == ctorParmCount) {
                     ctor.kotlinFunction?.parameters?.get(param.index)?.name
+                } else if (ctor.kotlinFunction == null  && member.declaringClass.hasInlineClassParameters()) {
+                    // Might be synthetic constructor because of inline class parameters
+                    member.declaringClass.kotlin.primaryConstructor?.parameters?.get(param.index)?.name
                 } else {
                     null
                 }
@@ -207,20 +231,6 @@ internal class KotlinNamesAnnotationIntrospector(val module: KotlinModule, val c
                 null
             }
             return name
-        }
-        return null
-    }
-
-    override fun hasAsValue(member: Annotated): Boolean? {
-        // Support for inline classes
-        if (member is AnnotatedMethod && cache.classIsInline(member.declaringClass)) {
-            // Inline classes have exactly one non-static field
-            val field = member.declaringClass.declaredFields.single { !Modifier.isStatic(it.modifiers) }
-            val getterName = "get" + field.name.capitalize()
-            // Annotate the corresponding property with @JsonValue
-            if (member.name == getterName) {
-                return true
-            }
         }
         return null
     }
