@@ -1,5 +1,6 @@
 package com.fasterxml.jackson.module.kotlin
 
+import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.databind.BeanDescription
 import com.fasterxml.jackson.databind.DeserializationConfig
 import com.fasterxml.jackson.databind.DeserializationContext
@@ -14,17 +15,20 @@ import com.fasterxml.jackson.databind.introspect.AnnotatedConstructor
 import com.fasterxml.jackson.databind.introspect.AnnotatedMethod
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 import java.lang.reflect.TypeVariable
 import kotlin.reflect.KParameter
 import kotlin.reflect.full.*
 import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.jvm.javaType
+import kotlin.reflect.jvm.kotlinFunction
 
 internal class KotlinValueInstantiator(
     src: StdValueInstantiator,
     private val cache: ReflectionCache,
     private val nullToEmptyCollection: Boolean,
-    private val nullToEmptyMap: Boolean
+    private val nullToEmptyMap: Boolean,
+    val beanDescriptor: BeanDescription
 ) : StdValueInstantiator(src) {
     @Suppress("UNCHECKED_CAST")
     override fun createFromObjectWith(
@@ -141,6 +145,27 @@ internal class KotlinValueInstantiator(
         return super.createFromObjectWith(ctxt, args)
     }
 
+    override fun createUsingDelegate(ctxt: DeserializationContext, delegate: Any): Any? {
+        val clazz = beanDescriptor.beanClass
+        if (clazz.isInlineClass()) {
+            // Inline class aware construction
+//            val creator = beanDescriptor.beanClass.kotlin.primaryConstructor!!
+//            creator.call(delegate)
+            val creator = clazz.methods
+                .find { m -> Modifier.isStatic(m.modifiers) && m.isAnnotationPresent(JsonCreator::class.java) }
+                ?.kotlinFunction
+            if (creator != null) {
+                // TODO: Make this work with non-public classes, problem with InlineClassAwareCaller
+                creator.isAccessible = true
+                val companionObjectInstance = clazz.getDeclaredField("Companion")
+                    .apply { isAccessible = true }.get(null)
+//                val companionObjectInstance = clazz.kotlin.companionObjectInstance
+                return creator.call(companionObjectInstance, delegate)
+            }
+        }
+        return super.createUsingDelegate(ctxt, delegate)
+    }
+
     private fun KParameter.isPrimitive(): Boolean {
         val javaType = type.javaType
         return when (javaType) {
@@ -164,7 +189,7 @@ internal class KotlinInstantiators(
     ): ValueInstantiator {
         return if (beanDescriptor.beanClass.isKotlinClass()) {
             if (defaultInstantiator is StdValueInstantiator) {
-                KotlinValueInstantiator(defaultInstantiator, cache, nullToEmptyCollection, nullToEmptyMap)
+                KotlinValueInstantiator(defaultInstantiator, cache, nullToEmptyCollection, nullToEmptyMap, beanDescriptor)
             } else {
                 // TODO: return defaultInstantiator and let default method parameters and nullability go unused?  or die with exception:
                 throw IllegalStateException("KotlinValueInstantiator requires that the default ValueInstantiator is StdValueInstantiator")

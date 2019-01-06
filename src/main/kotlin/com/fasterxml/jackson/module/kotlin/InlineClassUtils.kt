@@ -1,9 +1,11 @@
 package com.fasterxml.jackson.module.kotlin
 
+import java.lang.reflect.Method
 import kotlin.reflect.KClass
 import kotlin.reflect.jvm.internal.impl.descriptors.ClassDescriptor
 import kotlin.reflect.jvm.internal.impl.descriptors.DeclarationDescriptor
 import kotlin.reflect.jvm.internal.impl.types.KotlinType
+import kotlin.reflect.jvm.internal.impl.load.java.JvmAbi
 
 /**
  * Checks if the class is an inline Kotlin class.
@@ -30,6 +32,13 @@ internal fun Class<*>.hasInlineClassParameters(): Boolean {
         .unsubstitutedPrimaryConstructor?.valueParameters?.any { it.type.isInlineClassType() }
         ?: false
 }
+
+// TODO: Use JvmAbi.IMPL_SUFFIX_FOR_INLINE_CLASS_MEMBERS when available
+internal fun Class<*>.getBoxMethod(): Method =
+    getDeclaredMethod("box-impl", getUnboxMethod().returnType)
+
+internal fun Class<*>.getUnboxMethod(): Method =
+    getDeclaredMethod("unbox-impl")
 
 // Source:
 // https://github.com/JetBrains/kotlin/blob/master/core/descriptors/src/org/jetbrains/kotlin/resolve/inlineClassesUtils.kt

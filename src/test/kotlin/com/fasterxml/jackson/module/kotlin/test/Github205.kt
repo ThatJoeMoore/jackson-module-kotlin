@@ -5,6 +5,7 @@ package com.fasterxml.jackson.module.kotlin.test
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonValue
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.module.kotlin.hasInlineClassParameters
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
@@ -152,15 +153,22 @@ class TestGithub205 {
         assertEquals(obj, result)
     }
 
-    @Ignore
     @Test
     fun overrideJsonCreator() {
-        // TODO: Inline classes do not (yet) support @JvmStatic
         val obj = OverrideCreator(12.34F)
         val json = mapper.writeValueAsString(obj)
         assertEquals("12.34", json)
         val result = mapper.readValue<OverrideCreator>(json)
         assertEquals(OverrideCreator.parse(0F), result)
+    }
+
+    @Test
+    fun overrideJsonCreatorBoxed() {
+        val obj = OverrideCreatorBoxed(12)
+        val json = mapper.writeValueAsString(obj)
+        assertEquals("12", json)
+        val result = mapper.readValue<OverrideCreatorBoxed>(json)
+        assertEquals(OverrideCreatorBoxed.parse(obj.foo), result)
     }
 }
 
@@ -173,12 +181,19 @@ private inline class OverrideValue(@get:JsonIgnore val bar: String) {
 
 private inline class JsonValueAnnotated(@JsonValue val bar: String)
 
-@Suppress("unused", "NON_PUBLIC_PRIMARY_CONSTRUCTOR_OF_INLINE_CLASS")
 private inline class OverrideCreator(val float: Float) {
     companion object {
         @JsonCreator
         @JvmStatic
         fun parse(value: Float) = OverrideCreator(99.99F)
+    }
+}
+
+private inline class OverrideCreatorBoxed(val foo: Int?) {
+    companion object {
+        @JsonCreator
+        @JvmStatic
+        fun parse(value: Int?) = OverrideCreatorBoxed(99)
     }
 }
 
