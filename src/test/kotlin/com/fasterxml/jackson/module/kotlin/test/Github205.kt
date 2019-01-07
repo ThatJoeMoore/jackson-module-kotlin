@@ -163,6 +163,15 @@ class TestGithub205 {
     }
 
     @Test
+    fun privateOverrideJsonCreator() {
+        val obj = OverrideCreator(12.34F)
+        val json = mapper.writeValueAsString(obj)
+        assertEquals("12.34", json)
+        val result = mapper.readValue<OverrideCreator>(json)
+        assertEquals(OverrideCreator.parse(0F), result)
+    }
+
+    @Test
     fun overrideJsonCreatorBoxed() {
         val obj = OverrideCreatorBoxed(12)
         val json = mapper.writeValueAsString(obj)
@@ -181,7 +190,7 @@ private inline class OverrideValue(@get:JsonIgnore val bar: String) {
 
 private inline class JsonValueAnnotated(@JsonValue val bar: String)
 
-private inline class OverrideCreator(val float: Float) {
+inline class OverrideCreator(val float: Float) {
     companion object {
         @JsonCreator
         @JvmStatic
@@ -189,7 +198,15 @@ private inline class OverrideCreator(val float: Float) {
     }
 }
 
-private inline class OverrideCreatorBoxed(val foo: Int?) {
+private inline class PrivateOverrideCreator(val float: Float) {
+    companion object {
+        @JsonCreator
+        @JvmStatic
+        fun parse(value: Float) = OverrideCreator(99.99F)
+    }
+}
+
+inline class OverrideCreatorBoxed(val foo: Int?) {
     companion object {
         @JsonCreator
         @JvmStatic
