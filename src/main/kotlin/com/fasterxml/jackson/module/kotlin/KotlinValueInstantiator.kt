@@ -18,12 +18,14 @@ import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.lang.reflect.TypeVariable
 import kotlin.reflect.KParameter
-import kotlin.reflect.full.*
+import kotlin.reflect.full.extensionReceiverParameter
+import kotlin.reflect.full.instanceParameter
+import kotlin.reflect.full.valueParameters
 import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.jvm.javaType
 import kotlin.reflect.jvm.kotlinFunction
 
-internal class KotlinValueInstantiator(
+internal open class KotlinValueInstantiator(
     src: StdValueInstantiator,
     private val cache: ReflectionCache,
     private val nullToEmptyCollection: Boolean,
@@ -38,8 +40,8 @@ internal class KotlinValueInstantiator(
     ): Any? {
         val callable = when (_withArgsCreator) {
             is AnnotatedConstructor -> cache.kotlinFromJava(_withArgsCreator.annotated as Constructor<Any>)
-            is AnnotatedMethod -> cache.kotlinFromJava(_withArgsCreator.annotated as Method)
-            else -> throw IllegalStateException("Expected a constructor or method to create a Kotlin object, instead found ${_withArgsCreator.annotated.javaClass.name}")
+            is AnnotatedMethod      -> cache.kotlinFromJava(_withArgsCreator.annotated as Method)
+            else                    -> throw IllegalStateException("Expected a constructor or method to create a Kotlin object, instead found ${_withArgsCreator.annotated.javaClass.name}")
         } ?: return super.createFromObjectWith(
             ctxt,
             props,
@@ -107,7 +109,8 @@ internal class KotlinValueInstantiator(
             val isGenericTypeVar = paramDef.type.javaType is TypeVariable<*>
             val isMissingAndRequired = paramVal == null && isMissing && jsonProp.isRequired
             if (isMissingAndRequired ||
-                (!isGenericTypeVar && paramVal == null && !paramDef.type.isMarkedNullable)) {
+                (!isGenericTypeVar && paramVal == null && !paramDef.type.isMarkedNullable)
+            ) {
                 throw MissingKotlinParameterException(
                     parameter = paramDef,
                     processor = ctxt.parser,
@@ -170,7 +173,7 @@ internal class KotlinValueInstantiator(
         val javaType = type.javaType
         return when (javaType) {
             is Class<*> -> javaType.isPrimitive
-            else -> false
+            else        -> false
         }
     }
 
@@ -189,7 +192,23 @@ internal class KotlinInstantiators(
     ): ValueInstantiator {
         return if (beanDescriptor.beanClass.isKotlinClass()) {
             if (defaultInstantiator is StdValueInstantiator) {
-                KotlinValueInstantiator(defaultInstantiator, cache, nullToEmptyCollection, nullToEmptyMap, beanDescriptor)
+                if (beanDescriptor.beanClass.isInlineClass() && defaultInstantiator.delegateCreator != null) {
+                    KotlinInlineValueInstantiator(
+                        defaultInstantiator,
+                        cache,
+                        nullToEmptyCollection,
+                        nullToEmptyMap,
+                        beanDescriptor
+                    )
+                } else {
+                    KotlinValueInstantiator(
+                        defaultInstantiator,
+                        cache,
+                        nullToEmptyCollection,
+                        nullToEmptyMap,
+                        beanDescriptor
+                    )
+                }
             } else {
                 // TODO: return defaultInstantiator and let default method parameters and nullability go unused?  or die with exception:
                 throw IllegalStateException("KotlinValueInstantiator requires that the default ValueInstantiator is StdValueInstantiator")
@@ -197,5 +216,33 @@ internal class KotlinInstantiators(
         } else {
             defaultInstantiator
         }
+    }
+}
+
+internal class KotlinInlineValueInstantiator(
+    src: StdValueInstantiator,
+    cache: ReflectionCache,
+    nullToEmptyCollection: Boolean,
+    nullToEmptyMap: Boolean,
+    beanDescriptor: BeanDescription
+) : KotlinValueInstantiator(src, cache, nullToEmptyCollection, nullToEmptyMap, beanDescriptor) {
+    override fun createFromDouble(ctxt: DeserializationContext, value: Double): Any? {
+        return super.createUsingDelegate(ctxt, value)
+    }
+
+    override fun createFromInt(ctxt: DeserializationContext, value: Int): Any? {
+        return super.createUsingDelegate(ctxt, value)
+    }
+
+    override fun createFromString(ctxt: DeserializationContext, value: String): Any? {
+        return super.createUsingDelegate(ctxt, value)
+    }
+
+    override fun createFromLong(ctxt: DeserializationContext, value: Long): Any? {
+        return super.createUsingDelegate(ctxt, value)
+    }
+
+    override fun createFromBoolean(ctxt: DeserializationContext, value: Boolean): Any? {
+        return super.createUsingDelegate(ctxt, value)
     }
 }

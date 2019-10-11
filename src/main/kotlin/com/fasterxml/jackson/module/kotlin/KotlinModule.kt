@@ -3,17 +3,22 @@ package com.fasterxml.jackson.module.kotlin
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.annotation.JsonValue
+import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.MapperFeature
+import com.fasterxml.jackson.databind.SerializerProvider
 import com.fasterxml.jackson.databind.cfg.MapperConfig
 import com.fasterxml.jackson.databind.introspect.*
 import com.fasterxml.jackson.databind.module.SimpleModule
+import com.fasterxml.jackson.databind.ser.std.StdSerializer
 import com.fasterxml.jackson.databind.util.LRUMap
+import com.fasterxml.jackson.databind.util.StdConverter
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import kotlin.reflect.*
 import kotlin.reflect.full.*
 import kotlin.reflect.jvm.internal.KotlinReflectionInternalError
+import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.jvm.javaField
 import kotlin.reflect.jvm.javaType
 import kotlin.reflect.jvm.kotlinFunction
@@ -82,6 +87,8 @@ internal class ReflectionCache(reflectionCacheSize: Int) {
     private val javaConstructorIsCreatorAnnotated = LRUMap<AnnotatedConstructor, Boolean>(reflectionCacheSize, reflectionCacheSize)
     private val javaMemberIsRequired = LRUMap<AnnotatedMember, BooleanTriState?>(reflectionCacheSize, reflectionCacheSize)
     private val classIsInline = LRUMap<Class<*>, Boolean>(reflectionCacheSize, reflectionCacheSize)
+    private val inlineBoxer = LRUMap<Class<*>, Method>(reflectionCacheSize, reflectionCacheSize)
+    private val inlineUnboxer = LRUMap<Class<*>, Method>(reflectionCacheSize, reflectionCacheSize)
 
     fun kotlinFromJava(key: Class<Any>): KClass<Any> = javaClassToKotlin.get(key) ?: key.kotlin.let { javaClassToKotlin.putIfAbsent(key, it) ?: it }
     fun kotlinFromJava(key: Constructor<Any>): KFunction<Any>? = javaConstructorToKotlin.get(key) ?: key.kotlinFunction?.let { javaConstructorToKotlin.putIfAbsent(key, it) ?: it }
@@ -89,6 +96,8 @@ internal class ReflectionCache(reflectionCacheSize: Int) {
     fun checkConstructorIsCreatorAnnotated(key: AnnotatedConstructor, calc: (AnnotatedConstructor) -> Boolean): Boolean = javaConstructorIsCreatorAnnotated.get(key) ?: calc(key).let { javaConstructorIsCreatorAnnotated.putIfAbsent(key, it) ?: it }
     fun javaMemberIsRequired(key: AnnotatedMember, calc: (AnnotatedMember) -> Boolean?): Boolean? = javaMemberIsRequired.get(key)?.value ?: calc(key).let { javaMemberIsRequired.putIfAbsent(key, BooleanTriState.fromBoolean(it))?.value ?: it }
     fun classIsInline(key: Class<*>): Boolean = classIsInline.get(key) ?: key.isInlineClass().let { classIsInline.putIfAbsent(key, it) ?: it }
+    fun inlineBoxer(key: Class<*>): Method = inlineBoxer.get(key) ?: key.getBoxMethod().let { inlineBoxer.putIfAbsent(key, it) ?: it }
+    fun inlineUnboxer(key: Class<*>): Method = inlineUnboxer.get(key) ?: key.getUnboxMethod().let { inlineUnboxer.putIfAbsent(key, it) ?: it }
 }
 
 internal class KotlinNamesAnnotationIntrospector(val module: KotlinModule, val cache: ReflectionCache) : NopAnnotationIntrospector() {
@@ -237,5 +246,42 @@ internal class KotlinNamesAnnotationIntrospector(val module: KotlinModule, val c
             return name
         }
         return null
+    }
+
+    override fun findSerializationConverter(a: Annotated): Any? {
+        if (a is AnnotatedMethod) {
+            val boxedType = a.getInlineClassForGetter()
+            if (boxedType != null && boxedType.java != a.rawReturnType) {
+                val boxer = cache.inlineBoxer(boxedType.java).apply { isAccessible = true }
+                return InlineBoxer(a.rawReturnType.kotlin, boxedType, boxer)
+            }
+        }
+        return super.findSerializationConverter(a)
+    }
+
+    override fun findDeserializationConverter(a: Annotated): Any? {
+//        if (a is AnnotatedMethod) {
+//            val boxedType = a.getInlineClassForGetter()
+//            if (boxedType != null) {
+//                val boxer = cache.inlineBoxer(boxedType.java)
+//                return InlineBoxer(a.rawReturnType.kotlin, boxedType, boxer)
+//            }
+//        }
+        return super.findDeserializationConverter(a)
+    }
+
+    override fun findDeserializationContentConverter(a: AnnotatedMember?): Any {
+        return super.findDeserializationContentConverter(a)
+    }
+
+}
+
+// class params are used to make generic inference work
+class InlineBoxer(private val inlineType: KClass<out Any>, private val boxedType: KClass<out Any>, private val boxer: Method): StdConverter<Any, Any>() {
+    override fun convert(value: Any): Any? {
+        if (inlineType.isInstance(value)) {
+            return boxer.invoke(null, value)
+        }
+        return value
     }
 }

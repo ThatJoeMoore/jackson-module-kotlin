@@ -1,11 +1,15 @@
 package com.fasterxml.jackson.module.kotlin
 
+import com.fasterxml.jackson.databind.introspect.AnnotatedMethod
 import java.lang.reflect.Method
 import kotlin.reflect.KClass
+import kotlin.reflect.full.memberProperties
 import kotlin.reflect.jvm.internal.impl.descriptors.ClassDescriptor
 import kotlin.reflect.jvm.internal.impl.descriptors.DeclarationDescriptor
 import kotlin.reflect.jvm.internal.impl.types.KotlinType
 import kotlin.reflect.jvm.internal.impl.load.java.JvmAbi
+import kotlin.reflect.jvm.javaGetter
+import kotlin.reflect.jvm.kotlinFunction
 
 /**
  * Checks if the class is an inline Kotlin class.
@@ -31,6 +35,26 @@ internal fun Class<*>.hasInlineClassParameters(): Boolean {
     return this.kotlin.descriptor
         .unsubstitutedPrimaryConstructor?.valueParameters?.any { it.type.isInlineClassType() }
         ?: false
+}
+
+internal fun AnnotatedMethod.getInlineClassForGetter(): KClass<*>? {
+    val method = this.member
+    if (!method.declaringClass.hasInlineClassParameters()) {
+        return null
+    }
+    val kc = this.declaringClass.kotlin
+
+    val prop = kc.memberProperties.find { it.javaGetter == method }
+        ?: return null
+
+    val cl = prop.returnType.classifier
+        ?: return null
+
+    if (cl is KClass<*> && cl.descriptor.isInline) {
+        return cl
+    }
+
+    return null
 }
 
 // TODO: Use JvmAbi.IMPL_SUFFIX_FOR_INLINE_CLASS_MEMBERS when available
